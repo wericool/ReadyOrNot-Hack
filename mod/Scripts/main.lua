@@ -1,9 +1,22 @@
 -- RoN Solo ESP: reflected functions verified on Steam build 24942528 / UE 5.3.
 local output = '__RON_ESP_TELEMETRY_PATH__'
-local seq, pending, actors, refresh = 0, false, {}, 30
-local cachedPC, pcRefresh, lastWorld = nil, 30, 0
+local seq, pending, actors, refresh = 0, false, {}, 60
+local cachedPC, pcRefresh, lastWorld = nil, 60, 0
 local lastError = ''
 local boneCache={}
+local settingsPath=output:gsub('telemetry%.json$','settings.json')
+local settingsTicks=60
+local options={enabled=true,civilians=true,arrested=false,inactive=false,skeleton=true,evidence=true,reports=true,range=150}
+local function loadOptions()
+ local f=io.open(settingsPath,'r')
+ if not f then return end
+ local data=f:read('*a');f:close()
+ for _,key in ipairs({'enabled','civilians','arrested','inactive','skeleton','evidence','reports'}) do
+  local value=data:match('"'..key..'"%s*:%s*(%a+)')
+  if value=='true' or value=='false' then options[key]=value=='true' end
+ end
+ options.range=math.max(25,math.min(500,tonumber(data:match('"range"%s*:%s*(%d+)')) or options.range))
+end
 local evidenceActors,reportActors,incapacitatedActors={},{},{}
 local boneAliases={{'Head','head'},{'neck_1','neck_01'},{'spine_3','spine_03'},{'pelvis'},
  {'upperarm_LE','upperarm_l'},{'lowerarm_LE','lowerarm_l'},{'hand_LE','hand_l'},
@@ -73,8 +86,10 @@ local function emit(status,w,h,total,boxes,civilians,items,evidence,reports)
  f:close()
 end
 local function update()
+ settingsTicks=settingsTicks+1
+ if settingsTicks>=30 then pcall(loadOptions);settingsTicks=0 end
  pcRefresh=pcRefresh+1
- if pcRefresh>=30 or not valid(cachedPC) then
+ if pcRefresh>=60 or not valid(cachedPC) then
   cachedPC=nil; pcRefresh=0
   for _,p in ipairs(FindAllOf('PlayerController') or {}) do
    if valid(p) and p:IsLocalPlayerController() then cachedPC=p; break end
@@ -85,7 +100,7 @@ local function update()
  local level=pc:GetLevel()
  local world=valid(level) and level.OwningWorld or nil
  if not valid(world) then emit('no_pawn'); return end
- if world:GetAddress()~=lastWorld then actors={};boneCache={};evidenceActors={};reportActors={};incapacitatedActors={};refresh=30;lastWorld=world:GetAddress() end
+ if world:GetAddress()~=lastWorld then actors={};boneCache={};evidenceActors={};reportActors={};incapacitatedActors={};refresh=60;lastWorld=world:GetAddress() end
  if valid(world.NetDriver) then emit('solo_only'); return end
  local pawn=pc.Pawn
  if not valid(pawn) then emit('no_pawn'); return end
@@ -94,7 +109,7 @@ local function update()
  local width,height=sx.SizeX,sx.SizeY
  if not width or not height or width<=0 or height<=0 then emit('viewport'); return end
  refresh=refresh+1
- if refresh>=30 then
+ if refresh>=60 then
   actors=FindAllOf('ReadyOrNotCharacter') or {}
   evidenceActors={}
   for _,component in ipairs(FindAllOf('EvidenceComponent') or {}) do
@@ -123,7 +138,10 @@ local function update()
    local loc=actor:K2_GetActorLocation()
    local dx,dy,dz=loc.X-eye.X,loc.Y-eye.Y,loc.Z-eye.Z
    local distance=math.sqrt(dx*dx+dy*dy+dz*dz)/100
-   if distance>0.5 and distance<=500 then
+   if options.enabled and (kind~='civilian' or options.civilians)
+    and (state~='arrested' or options.arrested)
+    and ((state~='dead' and state~='unconscious') or options.inactive)
+    and distance>0.5 and distance<=options.range then
     local cap=actor.CapsuleComponent
     local half=90
     if valid(cap) then half=cap:GetScaledCapsuleHalfHeight() end
@@ -138,7 +156,8 @@ local function update()
      local x=(top.X+bottom.X)/2-widthBox/2
      local y=math.min(top.Y,bottom.Y)
      if heightBox>=2 and heightBox<height*3 and x+widthBox>=0 and x<=width and y+heightBox>=0 and y<=height then
-      local ok,bones=pcall(skeleton,pc,actor,loc)
+      local ok,bones=true,'[]'
+      if options.skeleton then ok,bones=pcall(skeleton,pc,actor,loc) end
       if not ok then
        if tostring(bones)~=lastError then print('[RoNESP] Bones: '..tostring(bones)..'\n');lastError=tostring(bones) end
        bones='[]'
@@ -154,11 +173,11 @@ local function update()
   local loc=valid(mesh) and mesh:K2_GetComponentLocation() or actor:K2_GetActorLocation()
   local dx,dy,dz=loc.X-eye.X,loc.Y-eye.Y,loc.Z-eye.Z
   local distance=math.sqrt(dx*dx+dy*dy+dz*dz)/100
-  if distance>0.5 and distance<=500 then
+  if options.enabled and distance>0.5 and distance<=options.range then
    local point=project(pc,loc)
    if point and point.X>=0 and point.X<=width and point.Y>=0 and point.Y<=height then
     local bones='[]'
-    if valid(mesh) then local ok,value=pcall(skeleton,pc,actor,loc,mesh);if ok then bones=value end end
+    if options.skeleton and valid(mesh) then local ok,value=pcall(skeleton,pc,actor,loc,mesh);if ok then bones=value end end
     items[#items+1]=string.format('{"x":%.2f,"y":%.2f,"d":%.2f,"kind":"%s","name":%s,"bones":%s}',point.X,point.Y,distance,kind,quote(name),bones)
    end
   end
@@ -166,24 +185,24 @@ local function update()
  for _,entry in ipairs(evidenceActors) do
   local a,c=entry.actor,entry.component
   if valid(a) and valid(c) and c:CanBeCollected() and not c:IsEvidenceCollected() and not c.bEvidenceExtracted then
-   evidence=evidence+1;mark(a,'evidence',entry.name)
+   evidence=evidence+1;if options.evidence then mark(a,'evidence',entry.name) end
   end
  end
  for _,a in ipairs(reportActors) do
   if valid(a) and belongsTo(a,world) and a.bReportableEnabled and not a.bHasBeenReported then
-   reports=reports+1;mark(a,'report',readableName(a,'ReportableName','Объект для доклада'))
+   reports=reports+1;if options.reports then mark(a,'report',readableName(a,'ReportableName','Объект для доклада')) end
   end
  end
  for _,a in ipairs(incapacitatedActors) do
   if valid(a) and belongsTo(a,world) and not a:HasBeenReported() then
    reports=reports+1
-   mark(a,'report',a.bIsDead and 'Пострадавший: мёртв' or 'Пострадавший: ранен',a.HumanMesh)
+   if options.reports then mark(a,'report',a.bIsDead and 'Пострадавший: мёртв' or 'Пострадавший: ранен',a.HumanMesh) end
   end
  end
  emit('ready',width,height,total,boxes,civilians,items,evidence,reports)
 end
 print('[RoNESP] Solo telemetry started\n')
-LoopAsync(33,function()
+LoopAsync(16,function()
  if pending then return false end
  pending=true
  ExecuteInGameThread(function()

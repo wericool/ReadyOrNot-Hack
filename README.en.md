@@ -10,7 +10,7 @@ Download the complete ZIP from [Releases](https://github.com/wericool/ReadyOrNot
 
     powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-ESP.ps1 -GameRoot "D:\SteamLibrary\steamapps\common\Ready Or Not"
 
-Use your actual game path. Launch a solo mission and Start-ESP.cmd. Insert opens the menu; arrows/Enter change options; F6 toggles ESP; End exits. Hotkeys require the game to be foreground. Keyboard-only menu.
+Use your actual game path. Launch a solo mission and Start-ESP.cmd. Insert opens the menu; arrows/Enter change options; F6 toggles ESP; End exits. Hotkeys require the game to be foreground. Four menu groups with Tab navigation and mouse controls; a free cursor may require pausing the game. Actual in-game mouse input has not been confirmed in this update.
 
 Source build: run build.ps1, Download-UE4SS.ps1, then installation. Requires .NET Framework 4.x, no Visual Studio. Pinned UE4SS v3.0.1-1152-ge3ba1016 with SHA-256 check. Complete release ZIP includes runtime.
 
@@ -19,3 +19,5 @@ Close the game before running Disable-ESP.ps1 or Enable-ESP.ps1 with the same -G
 UE4SS Lua reads reflected Unreal actors and writes local telemetry. External C# overlay displays it. Nothing is uploaded. Skeletons may lag due to game animation culling; some object types have no HP. Collected/reported markers depend on game flags. Full details: [Russian README](README.md).
 
 Project and bundled UE4SS use MIT licenses; [third-party notices](THIRD-PARTY-NOTICES.md).
+
+Version 1.1.0 adds an independent arrested-character filter (hidden by default), grouped menu, and optimized telemetry with a 16 ms target interval. Actual data rate depends on game-thread scheduling; measured approximately 38-39 Hz in one solo session. Disabled skeletons and hidden categories skip projection work. The menu displays observed data Hz, not game FPS.

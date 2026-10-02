@@ -12,7 +12,7 @@ public class Frame { public int seq, width, height, total, civilians, evidence, 
 public class Marker { public float x,y,d; public string kind,name; public Joint[] bones; }
 public class Joint { public float x,y; public bool valid; }
 public class Box { public float x,y,w,h,d,hp,maxhp; public string kind,state; public Joint[] bones; }
-public class Options { public bool enabled=true, distance=true, civilians=true, health=true, healthbar=true, status=true, skeleton=true, boxes=true, inactive=false, evidence=true, reports=true; public int range=150, color=0; }
+public class Options { public bool enabled=true, distance=true, civilians=true, health=true, healthbar=true, status=true, skeleton=true, boxes=true, inactive=false, evidence=true, reports=true, arrested=false; public int range=150, color=0; }
 public class Overlay : Form {
     [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr h,int id,uint modifiers,uint key);
     [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr h,int id);
@@ -21,15 +21,22 @@ public class Overlay : Form {
     [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+    [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h,int index);
+    [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h,int index,int value);
+    bool mouseInteractive;
     struct RECT { public int l,t,r,b; }
     struct POINT { public int x,y; }
     readonly string root=AppDomain.CurrentDomain.BaseDirectory;
     readonly JavaScriptSerializer json=new JavaScriptSerializer();
     readonly Font text=new Font("Segoe UI",12), title=new Font("Segoe UI",16,FontStyle.Bold), hint=new Font("Segoe UI",10);
     readonly Color[] colors={Color.FromArgb(255,75,90),Color.FromArgb(70,230,255),Color.FromArgb(255,214,70)};
+    readonly string[] groups={"Общее","Персонажи","Здоровье","Объекты"};
+    static readonly int[,] links={{0,1},{1,2},{2,3},{2,4},{4,5},{5,6},{2,7},{7,8},{8,9},{3,10},{10,11},{11,12},{3,13},{13,14},{14,15}};
+    long telemetryStamp; double dataHz; DateTime rateStart=DateTime.UtcNow; int rateFrames;
     Options options=new Options(); Frame frame; DateTime lastFrame=DateTime.MinValue;
-    bool menu=true, active, hotkeys; int selected=0; IntPtr game; int ticks;
-    readonly int[] hotkeyCodes={0x2D,0x75,0x23,0x26,0x28,0x25,0x27,0x0D};
+    bool menu=true, active, hotkeys; int selected=0, group=0; IntPtr game; int ticks;
+    readonly int[] hotkeyCodes={0x2D,0x75,0x23,0x26,0x28,0x25,0x27,0x0D,0x09};
     protected override bool ShowWithoutActivation { get { return true; } }
     protected override CreateParams CreateParams { get { var p=base.CreateParams; p.ExStyle|=0x80000|0x20|0x08000000|0x80; return p; } }
     public Overlay() {
@@ -55,38 +62,67 @@ public class Overlay : Form {
     }
     void RebindMenu() { BindKeys(false); BindKeys(active); }
     protected override void WndProc(ref Message m) {
+        if(m.Msg==0x0084) {
+            long point=m.LParam.ToInt64();
+            var client=PointToClient(new Point((short)(point&65535),(short)((point>>16)&65535)));
+            m.Result=(IntPtr)(menu&&active&&MenuBounds().Contains(client)?1:-1);return;
+        }
+        if(m.Msg==0x0021){m.Result=(IntPtr)3;return;}
         if(m.Msg==0x0312 && active) {
             int id=m.WParam.ToInt32()-100;
             if(id==0){menu=!menu;RebindMenu();}
             if(id==1){options.enabled=!options.enabled;Save();}
             if(id==2){Close();return;}
             if(menu) {
-                if(id==3)selected=(selected+13)%14;
-                if(id==4)selected=(selected+1)%14;
-                if(id>=5&&id<=7) {
-                    bool left=id==5;
-                    if(selected==0)options.enabled=!options.enabled;
-                    if(selected==1)options.range=Math.Max(25,Math.Min(500,options.range+(left?-25:25)));
-                    if(selected==2)options.distance=!options.distance;
-                    if(selected==3)options.color=(options.color+(left?2:1))%3;
-                    if(selected==4)options.civilians=!options.civilians;
-                    if(selected==5)options.health=!options.health;
-                    if(selected==6)options.healthbar=!options.healthbar;
-                    if(selected==7)options.status=!options.status;
-                    if(selected==8)options.skeleton=!options.skeleton;
-                    if(selected==9)options.boxes=!options.boxes;
-                    if(selected==10)options.inactive=!options.inactive;
-                    if(selected==11)options.evidence=!options.evidence;
-                    if(selected==12)options.reports=!options.reports;
-                    if(selected==13){Close();return;}
-                    Save();
-                }
+                if(id==3)selected=(selected+RowCount()-1)%RowCount();
+                if(id==4)selected=(selected+1)%RowCount();
+                if(id==8){group=(group+1)%groups.Length;selected=0;}
+                if(id>=5&&id<=7)ChangeOption(id==5?-1:1);
+
             }
             Invalidate(); return;
         }
         base.WndProc(ref m);
     }
     protected override void OnFormClosed(FormClosedEventArgs e) { BindKeys(false); text.Dispose();title.Dispose();hint.Dispose();base.OnFormClosed(e); }
+    Rectangle MenuBounds() { return new Rectangle(24,Math.Max(12,Math.Min(50,Height-490)),Math.Min(620,Math.Max(300,Width-48)),460); }
+    int RowCount() { return group==0?5:group==1?6:2; }
+    string[] Rows() {
+        if(group==0)return new[]{"ESP: "+OnOff(options.enabled),"Дальность: "+options.range+" м","Расстояние: "+OnOff(options.distance),"Цвет врагов: "+new[]{"красный","голубой","жёлтый"}[options.color],"Закрыть оверлей"};
+        if(group==1)return new[]{"Гражданские: "+OnOff(options.civilians),"Арестованные: "+OnOff(options.arrested),"Мёртвые / без сознания: "+OnOff(options.inactive),"Рамки: "+OnOff(options.boxes),"Скелет: "+OnOff(options.skeleton),"Статусы: "+OnOff(options.status)};
+        if(group==2)return new[]{"ХП числом: "+OnOff(options.health),"Полоска ХП: "+OnOff(options.healthbar)};
+        return new[]{"Улики / брошенное оружие: "+OnOff(options.evidence),"Пострадавшие / для доклада: "+OnOff(options.reports)};
+    }
+    void ChangeOption(int direction) {
+        if(group==0) {
+            if(selected==0)options.enabled=!options.enabled;
+            if(selected==1)options.range=Math.Max(25,Math.Min(500,options.range+direction*25));
+            if(selected==2)options.distance=!options.distance;
+            if(selected==3)options.color=(options.color+(direction<0?2:1))%3;
+            if(selected==4){Close();return;}
+        } else if(group==1) {
+            if(selected==0)options.civilians=!options.civilians;
+            if(selected==1)options.arrested=!options.arrested;
+            if(selected==2)options.inactive=!options.inactive;
+            if(selected==3)options.boxes=!options.boxes;
+            if(selected==4)options.skeleton=!options.skeleton;
+            if(selected==5)options.status=!options.status;
+        } else if(group==2) {
+            if(selected==0)options.health=!options.health;
+            if(selected==1)options.healthbar=!options.healthbar;
+        } else {
+            if(selected==0)options.evidence=!options.evidence;
+            if(selected==1)options.reports=!options.reports;
+        }
+        Save();Invalidate();
+    }
+    protected override void OnMouseDown(MouseEventArgs e) {
+        base.OnMouseDown(e);if(!menu||!active)return;
+        var bounds=MenuBounds();int x=e.X-bounds.X,y=e.Y-bounds.Y;
+        if(y>=60&&y<100){group=Math.Max(0,Math.Min(3,x/(bounds.Width/4)));selected=0;Invalidate();return;}
+        int row=(y-115)/37;
+        if(y>=115&&row>=0&&row<RowCount()){selected=row;ChangeOption(e.Button==MouseButtons.Right?-1:1);}
+    }
     void Save() { try { File.WriteAllText(Path.Combine(root,"settings.json"),json.Serialize(options)); } catch { } }
     void TickOverlay() {
         if (++ticks%60==1 || game==IntPtr.Zero) {
@@ -103,15 +139,38 @@ public class Overlay : Form {
         if(bounds.Width<20||bounds.Height<20)return;
         if(Bounds!=bounds)Bounds=bounds;
         if(!Visible)Show();
+        POINT cursor; bool interactive=menu&&GetCursorPos(out cursor)&&MenuBounds().Contains(PointToClient(new Point(cursor.x,cursor.y)));
+        if(interactive!=mouseInteractive) {
+            int style=GetWindowLong(Handle,-20);
+            SetWindowLong(Handle,-20,interactive?style&~0x20:style|0x20);
+            mouseInteractive=interactive;
+        }
         try {
             string path=Path.Combine(root,"telemetry.json");
+            long stamp=File.GetLastWriteTimeUtc(path).Ticks;
+            if(stamp!=telemetryStamp) {
             using(var fs=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete))
             using(var reader=new StreamReader(fs)) {
                 var next=json.Deserialize<Frame>(reader.ReadToEnd());
-                if(next!=null&&(frame==null||next.seq!=frame.seq)) {frame=next;lastFrame=DateTime.UtcNow;}
+                if(next!=null&&(frame==null||next.seq!=frame.seq)) {frame=next;lastFrame=DateTime.UtcNow;telemetryStamp=stamp;rateFrames++;
+                    double elapsed=(lastFrame-rateStart).TotalSeconds;if(elapsed>=1){dataHz=rateFrames/elapsed;rateFrames=0;rateStart=lastFrame;}}
+            }
             }
         } catch { }
         Invalidate();
+    }
+    void DrawSkeleton(Graphics g,Joint[] bones,float sx,float sy,Color color,float maxLengthSquared) {
+        if(bones==null)return;
+        using(var outline=new Pen(Color.Black,4))
+        using(var pen=new Pen(color,2)) {
+            for(int i=0;i<links.GetLength(0);i++) {
+                int a=links[i,0],z=links[i,1];if(a>=bones.Length||z>=bones.Length)continue;
+                var p=bones[a];var q=bones[z];if(p==null||q==null||!p.valid||!q.valid)continue;
+                float dx=(p.x-q.x)*sx,dy=(p.y-q.y)*sy;if(dx*dx+dy*dy>maxLengthSquared)continue;
+                g.DrawLine(outline,p.x*sx,p.y*sy,q.x*sx,q.y*sy);
+                g.DrawLine(pen,p.x*sx,p.y*sy,q.x*sx,q.y*sy);
+            }
+        }
     }
     void Label(Graphics g,string value,float x,float y,Color color,Font font) {
         using(var shadow=new SolidBrush(Color.Black))g.DrawString(value,font,shadow,x+1,y+1);
@@ -127,7 +186,8 @@ public class Overlay : Form {
             foreach(var b in frame.boxes) {
                 if(b.d>options.range||b.w<=0||b.h<=0)continue;
                 if(b.kind=="civilian"&&!options.civilians)continue;
-                if(!options.inactive&&(b.state=="dead"||b.state=="unconscious"||b.state=="arrested"))continue;
+                if(b.state=="arrested"&&!options.arrested)continue;
+                if(!options.inactive&&(b.state=="dead"||b.state=="unconscious"))continue;
                 Color color=b.kind=="civilian"?Color.FromArgb(70,240,125):colors[options.color%3];
                 if(b.state=="dead"||b.state=="unconscious"||b.state=="arrested")color=Color.Silver;
                 var rect=new RectangleF(b.x*sx,b.y*sy,b.w*sx,b.h*sy);
@@ -136,17 +196,7 @@ public class Overlay : Form {
                     using(var black=new Pen(Color.Black,4))g.DrawRectangle(black,rect.X,rect.Y,rect.Width,rect.Height);
                     using(var pen=new Pen(color,2))g.DrawRectangle(pen,rect.X,rect.Y,rect.Width,rect.Height);
                 }
-                if(options.skeleton&&b.bones!=null) {
-                    int[,] links={{0,1},{1,2},{2,3},{2,4},{4,5},{5,6},{2,7},{7,8},{8,9},{3,10},{10,11},{11,12},{3,13},{13,14},{14,15}};
-                    for(int i=0;i<links.GetLength(0);i++) {
-                        int a=links[i,0],z=links[i,1]; if(a>=b.bones.Length||z>=b.bones.Length)continue;
-                        var p=b.bones[a];var q=b.bones[z];if(p==null||q==null||!p.valid||!q.valid)continue;
-                        float dx=(p.x-q.x)*sx,dy=(p.y-q.y)*sy;
-                        if(dx*dx+dy*dy>rect.Height*rect.Height*4)continue;
-                        using(var pen=new Pen(Color.Black,4))g.DrawLine(pen,p.x*sx,p.y*sy,q.x*sx,q.y*sy);
-                        using(var pen=new Pen(color,2))g.DrawLine(pen,p.x*sx,p.y*sy,q.x*sx,q.y*sy);
-                    }
-                }
+                if(options.skeleton)DrawSkeleton(g,b.bones,sx,sy,color,rect.Height*rect.Height*4);
                 string label=b.kind=="civilian"?"Гражд.":"Подозр.";
                 if(options.distance)label+=" · "+Math.Round(b.d)+" м";
                 var labels=new List<string>(); labels.Add(label);
@@ -174,17 +224,7 @@ public class Overlay : Form {
                 float px=item.x*sx,py=item.y*sy;
                 if(px<0||py<0||px>Width||py>Height)continue;
                 Color color=item.kind=="evidence"?Color.Gold:Color.FromArgb(80,220,255);
-                if(options.skeleton&&item.bones!=null) {
-                    int[,] links={{0,1},{1,2},{2,3},{2,4},{4,5},{5,6},{2,7},{7,8},{8,9},{3,10},{10,11},{11,12},{3,13},{13,14},{14,15}};
-                    for(int i=0;i<links.GetLength(0);i++) {
-                        int a=links[i,0],z=links[i,1];if(a>=item.bones.Length||z>=item.bones.Length)continue;
-                        var p=item.bones[a];var q=item.bones[z];if(p==null||q==null||!p.valid||!q.valid)continue;
-                        float dx=(p.x-q.x)*sx,dy=(p.y-q.y)*sy;
-                        if(dx*dx+dy*dy>Width*Width+Height*Height)continue;
-                        using(var pen=new Pen(Color.Black,4))g.DrawLine(pen,p.x*sx,p.y*sy,q.x*sx,q.y*sy);
-                        using(var pen=new Pen(color,2))g.DrawLine(pen,p.x*sx,p.y*sy,q.x*sx,q.y*sy);
-                    }
-                }
+                if(options.skeleton)DrawSkeleton(g,item.bones,sx,sy,color,Width*Width+Height*Height);
                 var diamond=new[]{new PointF(px,py-7),new PointF(px+7,py),new PointF(px,py+7),new PointF(px-7,py),new PointF(px,py-7)};
                 using(var pen=new Pen(Color.Black,4))g.DrawLines(pen,diamond);
                 using(var pen=new Pen(color,2))g.DrawLines(pen,diamond);
@@ -201,17 +241,25 @@ public class Overlay : Form {
             }
         }
         if(!menu)return;
-        float x=40,y=70;
-        using(var bg=new SolidBrush(Color.FromArgb(22,25,33)))g.FillRectangle(bg,x,y,510,690);
-        using(var pen=new Pen(colors[options.color%3],2))g.DrawRectangle(pen,x,y,510,690);
-        Label(g,"READY OR NOT  /  ESP",x+20,y+15,Color.White,title);
-        string[] rows={"ESP: "+OnOff(options.enabled),"Дальность: "+options.range+" м","Расстояние: "+OnOff(options.distance),"Цвет подозреваемых: "+new[]{"красный","голубой","жёлтый"}[options.color%3],"Гражданские: "+OnOff(options.civilians),"ХП числом: "+OnOff(options.health),"Полоска ХП: "+OnOff(options.healthbar),"Статусы: "+OnOff(options.status),"Скелет: "+OnOff(options.skeleton),"Рамки: "+OnOff(options.boxes),"Мёртвые / без сознания / арестованные: "+OnOff(options.inactive),"Улики / брошенное оружие: "+OnOff(options.evidence),"Пострадавшие / объекты для доклада: "+OnOff(options.reports),"Закрыть оверлей"};
-        for(int i=0;i<rows.Length;i++)Label(g,(i==selected?"›  ":"   ")+rows[i],x+20,y+65+i*35,i==selected?colors[options.color%3]:Color.White,text);
-        string status=!fresh?"Ожидание данных игры":frame.status=="ready"?"Активных: подозреваемые "+frame.total+" · гражданские "+frame.civilians:frame.status=="solo_only"?"ESP доступен в одиночном режиме":frame.status=="no_pawn"?"Загрузите одиночную миссию":frame.status;
-        Label(g,status,x+20,y+565,Color.LightGray,hint);
-        if(fresh)Label(g,"Улик: "+frame.evidence+" · Для доклада: "+frame.reports,x+20,y+590,Color.LightGray,hint);
-        Label(g,"Insert — меню  ·  F6 — ESP  ·  End — выход",x+20,y+625,Color.LightGray,hint);
-        Label(g,"↑↓ — выбор  ·  ←→ / Enter — изменить",x+20,y+653,Color.LightGray,hint);
+        var boundsMenu=MenuBounds();float x=boundsMenu.X,y=boundsMenu.Y,w=boundsMenu.Width;
+        using(var bg=new SolidBrush(Color.FromArgb(22,25,33)))g.FillRectangle(bg,boundsMenu);
+        using(var pen=new Pen(colors[options.color],2))g.DrawRectangle(pen,boundsMenu);
+        Label(g,"READY OR NOT  /  SOLO ESP",x+18,y+12,Color.White,title);
+        for(int i=0;i<groups.Length;i++) {
+            var tab=new RectangleF(x+i*w/4,y+60,w/4,38);
+            using(var brush=new SolidBrush(i==group?Color.FromArgb(52,62,80):Color.FromArgb(30,34,44)))g.FillRectangle(brush,tab);
+            Label(g,groups[i],tab.X+10,tab.Y+8,i==group?colors[options.color]:Color.LightGray,text);
+        }
+        var rows=Rows();
+        for(int i=0;i<rows.Length;i++) {
+            if(i==selected)using(var brush=new SolidBrush(Color.FromArgb(38,44,57)))g.FillRectangle(brush,x+10,y+112+i*37,w-20,34);
+            Label(g,(i==selected?"›  ":"   ")+rows[i],x+18,y+115+i*37,i==selected?colors[options.color]:Color.White,text);
+        }
+        string status=!fresh?"Ожидание данных игры":frame.status=="ready"?"Подозреваемые: "+frame.total+" · гражданские: "+frame.civilians:frame.status=="solo_only"?"ESP доступен в одиночном режиме":frame.status=="no_pawn"?"Загрузите одиночную миссию":frame.status;
+        Label(g,status,x+18,y+350,Color.LightGray,hint);
+        Label(g,"Данные: "+Math.Round(dataHz)+" Гц · Улик: "+(fresh?frame.evidence:0)+" · Для доклада: "+(fresh?frame.reports:0),x+18,y+375,Color.LightGray,hint);
+        Label(g,"Insert — меню · F6 — ESP · End — выход",x+18,y+406,Color.LightGray,hint);
+        Label(g,"Мышь / Tab — раздел · ↑↓ — выбор · ←→ / Enter — изменить",x+18,y+430,Color.LightGray,hint);
     }
     static string OnOff(bool value) { return value?"ВКЛ":"ВЫКЛ"; }
     [STAThread] public static void Main() {
