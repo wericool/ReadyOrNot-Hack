@@ -1,0 +1,11 @@
+vendor/
+backups/
+publish/
+*.exe
+*.pdb
+*.zip
+telemetry*.json
+settings.json
+verification*
+*.log
+.vs/
