@@ -5,8 +5,8 @@ local cachedPC, pcRefresh, lastWorld = nil, 60, 0
 local lastError = ''
 local boneCache={}
 local settingsPath=output:gsub('telemetry%.json$','settings.json')
-local settingsTicks=60
-local options={enabled=true,civilians=true,arrested=false,inactive=false,skeleton=true,evidence=true,reports=true,range=150}
+local settingsReadAt=-1
+local options={enabled=true,civilians=true,arrested=false,inactive=false,skeleton=true,evidence=true,reports=true,range=150,updateMs=16}
 local function loadOptions()
  local f=io.open(settingsPath,'r')
  if not f then return end
@@ -15,6 +15,8 @@ local function loadOptions()
   local value=data:match('"'..key..'"%s*:%s*(%a+)')
   if value=='true' or value=='false' then options[key]=value=='true' end
  end
+ local requested=tonumber(data:match('"updateMs"%s*:%s*(%d+)'))
+ if requested==8 or requested==16 or requested==33 or requested==50 or requested==100 then options.updateMs=requested end
  options.range=math.max(25,math.min(500,tonumber(data:match('"range"%s*:%s*(%d+)')) or options.range))
 end
 local evidenceActors,reportActors,incapacitatedActors={},{},{}
@@ -82,15 +84,13 @@ local function emit(status,w,h,total,boxes,civilians,items,evidence,reports)
  seq=seq+1
  local f=io.open(output,'w')
  if not f then return end
- f:write(string.format('{"seq":%d,"status":"%s","width":%d,"height":%d,"total":%d,"civilians":%d,"evidence":%d,"reports":%d,"boxes":[%s],"items":[%s]}',seq,status,w or 0,h or 0,total or 0,civilians or 0,evidence or 0,reports or 0,table.concat(boxes or {},','),table.concat(items or {},',')))
+ f:write(string.format('{"updateMs":%d,"seq":%d,"status":"%s","width":%d,"height":%d,"total":%d,"civilians":%d,"evidence":%d,"reports":%d,"boxes":[%s],"items":[%s]}',options.updateMs,seq,status,w or 0,h or 0,total or 0,civilians or 0,evidence or 0,reports or 0,table.concat(boxes or {},','),table.concat(items or {},',')))
  f:close()
 end
 local function update()
- settingsTicks=settingsTicks+1
- if settingsTicks>=30 then pcall(loadOptions);settingsTicks=0 end
- pcRefresh=pcRefresh+1
- if pcRefresh>=60 or not valid(cachedPC) then
-  cachedPC=nil; pcRefresh=0
+ local now=os.time()
+ if pcRefresh~=now or not valid(cachedPC) then
+  cachedPC=nil; pcRefresh=now
   for _,p in ipairs(FindAllOf('PlayerController') or {}) do
    if valid(p) and p:IsLocalPlayerController() then cachedPC=p; break end
   end
@@ -100,7 +100,7 @@ local function update()
  local level=pc:GetLevel()
  local world=valid(level) and level.OwningWorld or nil
  if not valid(world) then emit('no_pawn'); return end
- if world:GetAddress()~=lastWorld then actors={};boneCache={};evidenceActors={};reportActors={};incapacitatedActors={};refresh=60;lastWorld=world:GetAddress() end
+ if world:GetAddress()~=lastWorld then actors={};boneCache={};evidenceActors={};reportActors={};incapacitatedActors={};refresh=-1;lastWorld=world:GetAddress() end
  if valid(world.NetDriver) then emit('solo_only'); return end
  local pawn=pc.Pawn
  if not valid(pawn) then emit('no_pawn'); return end
@@ -108,8 +108,7 @@ local function update()
  pc:GetViewportSize(sx,sy)
  local width,height=sx.SizeX,sx.SizeY
  if not width or not height or width<=0 or height<=0 then emit('viewport'); return end
- refresh=refresh+1
- if refresh>=60 then
+ if refresh~=now then
   actors=FindAllOf('ReadyOrNotCharacter') or {}
   evidenceActors={}
   for _,component in ipairs(FindAllOf('EvidenceComponent') or {}) do
@@ -122,7 +121,7 @@ local function update()
   end
   reportActors=FindAllOf('ReportableActor') or {}
   incapacitatedActors=FindAllOf('IncapacitatedHuman') or {}
-  refresh=0
+  refresh=now
  end
  local camera=pc.PlayerCameraManager
  if not valid(camera) then emit('no_camera'); return end
@@ -202,17 +201,28 @@ local function update()
  emit('ready',width,height,total,boxes,civilians,items,evidence,reports)
 end
 print('[RoNESP] Solo telemetry started\n')
-LoopAsync(16,function()
- if pending then return false end
- pending=true
- ExecuteInGameThread(function()
-  local ok,err=pcall(update)
-  pending=false
-  if not ok then
-   emit('error')
-   err=tostring(err)
-   if err~=lastError then print('[RoNESP] '..err..'\n'); lastError=err end
+local startLoop
+startLoop=function(interval)
+ LoopAsync(interval,function()
+  local now=os.time()
+  if settingsReadAt~=now then pcall(loadOptions);settingsReadAt=now end
+  if options.updateMs~=interval then
+   startLoop(options.updateMs)
+   return true
   end
+  if pending then return false end
+  pending=true
+  ExecuteInGameThread(function()
+   local ok,err=pcall(update)
+   pending=false
+   if not ok then
+    emit('error')
+    err=tostring(err)
+    if err~=lastError then print('[RoNESP] '..err..'\n');lastError=err end
+   end
+  end)
+  return false
  end)
- return false
-end)
+end
+pcall(loadOptions)
+startLoop(options.updateMs)

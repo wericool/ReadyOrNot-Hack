@@ -8,11 +8,11 @@ using System.Runtime.InteropServices;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-public class Frame { public int seq, width, height, total, civilians, evidence, reports; public string status; public Box[] boxes; public Marker[] items; }
+public class Frame { public int updateMs, seq, width, height, total, civilians, evidence, reports; public string status; public Box[] boxes; public Marker[] items; }
 public class Marker { public float x,y,d; public string kind,name; public Joint[] bones; }
 public class Joint { public float x,y; public bool valid; }
 public class Box { public float x,y,w,h,d,hp,maxhp; public string kind,state; public Joint[] bones; }
-public class Options { public bool enabled=true, distance=true, civilians=true, health=true, healthbar=true, status=true, skeleton=true, boxes=true, inactive=false, evidence=true, reports=true, arrested=false; public int range=150, color=0; }
+public class Options { public bool enabled=true, distance=true, civilians=true, health=true, healthbar=true, status=true, skeleton=true, boxes=true, inactive=false, evidence=true, reports=true, arrested=false; public int range=150, color=0, updateMs=16; }
 public class Overlay : Form {
     [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr h,int id,uint modifiers,uint key);
     [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr h,int id);
@@ -27,6 +27,8 @@ public class Overlay : Form {
     bool mouseInteractive;
     struct RECT { public int l,t,r,b; }
     struct POINT { public int x,y; }
+    static readonly int[] updateIntervals={100,50,33,16,8};
+    readonly Timer refreshTimer=new Timer();
     readonly string root=AppDomain.CurrentDomain.BaseDirectory;
     readonly JavaScriptSerializer json=new JavaScriptSerializer();
     readonly Font text=new Font("Segoe UI",12), title=new Font("Segoe UI",16,FontStyle.Bold), hint=new Font("Segoe UI",10);
@@ -50,7 +52,8 @@ public class Overlay : Form {
         } catch { }
         if(options==null)options=new Options();
         options.range=Math.Max(25,Math.Min(500,options.range)); options.color=Math.Max(0,options.color)%3;
-        var timer=new Timer { Interval=16 }; timer.Tick+=(s,e)=>TickOverlay(); timer.Start();
+        if(Array.IndexOf(updateIntervals,options.updateMs)<0)options.updateMs=16;
+        refreshTimer.Interval=options.updateMs;refreshTimer.Tick+=(s,e)=>TickOverlay();refreshTimer.Start();
     }
     void BindKeys(bool bind) {
         if(bind==hotkeys)return;
@@ -84,11 +87,11 @@ public class Overlay : Form {
         }
         base.WndProc(ref m);
     }
-    protected override void OnFormClosed(FormClosedEventArgs e) { BindKeys(false); text.Dispose();title.Dispose();hint.Dispose();base.OnFormClosed(e); }
+    protected override void OnFormClosed(FormClosedEventArgs e) { BindKeys(false); refreshTimer.Dispose();text.Dispose();title.Dispose();hint.Dispose();base.OnFormClosed(e); }
     Rectangle MenuBounds() { return new Rectangle(24,Math.Max(12,Math.Min(50,Height-490)),Math.Min(620,Math.Max(300,Width-48)),460); }
-    int RowCount() { return group==0?5:group==1?6:2; }
+    int RowCount() { return group==0?6:group==1?6:2; }
     string[] Rows() {
-        if(group==0)return new[]{"ESP: "+OnOff(options.enabled),"Дальность: "+options.range+" м","Расстояние: "+OnOff(options.distance),"Цвет врагов: "+new[]{"красный","голубой","жёлтый"}[options.color],"Закрыть оверлей"};
+        if(group==0)return new[]{"ESP: "+OnOff(options.enabled),"Дальность: "+options.range+" м","Расстояние: "+OnOff(options.distance),"Цвет врагов: "+new[]{"красный","голубой","жёлтый"}[options.color],"Обновление: "+options.updateMs+" мс (~"+Math.Round(1000.0/options.updateMs)+" Гц)","Закрыть оверлей"};
         if(group==1)return new[]{"Гражданские: "+OnOff(options.civilians),"Арестованные: "+OnOff(options.arrested),"Мёртвые / без сознания: "+OnOff(options.inactive),"Рамки: "+OnOff(options.boxes),"Скелет: "+OnOff(options.skeleton),"Статусы: "+OnOff(options.status)};
         if(group==2)return new[]{"ХП числом: "+OnOff(options.health),"Полоска ХП: "+OnOff(options.healthbar)};
         return new[]{"Улики / брошенное оружие: "+OnOff(options.evidence),"Пострадавшие / для доклада: "+OnOff(options.reports)};
@@ -99,7 +102,12 @@ public class Overlay : Form {
             if(selected==1)options.range=Math.Max(25,Math.Min(500,options.range+direction*25));
             if(selected==2)options.distance=!options.distance;
             if(selected==3)options.color=(options.color+(direction<0?2:1))%3;
-            if(selected==4){Close();return;}
+            if(selected==4) {
+                int index=Array.IndexOf(updateIntervals,options.updateMs);
+                options.updateMs=updateIntervals[(index+direction+updateIntervals.Length)%updateIntervals.Length];
+                refreshTimer.Interval=options.updateMs;
+            }
+            if(selected==5){Close();return;}
         } else if(group==1) {
             if(selected==0)options.civilians=!options.civilians;
             if(selected==1)options.arrested=!options.arrested;
@@ -264,7 +272,9 @@ public class Overlay : Form {
     static string OnOff(bool value) { return value?"ВКЛ":"ВЫКЛ"; }
     [STAThread] public static void Main() {
         bool created; using(var mutex=new System.Threading.Mutex(true,"Local\\RoNSoloESP",out created)) {
-            if(!created)return; SetProcessDPIAware(); Application.EnableVisualStyles(); Application.Run(new Overlay());
+            if(!created){MessageBox.Show("ESP уже запущен. Insert — меню, End — выход.","Ready Or Not ESP");return;}
+            SetProcessDPIAware(); Application.EnableVisualStyles();
+            try { Launcher.Run(); } catch(Exception ex) { MessageBox.Show(ex.Message,"Ready Or Not ESP",MessageBoxButtons.OK,MessageBoxIcon.Error); }
         }
     }
 }

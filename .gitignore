@@ -9,3 +9,6 @@ settings.json
 verification*
 *.log
 .vs/
+build/
+game-location.txt
+Portable/

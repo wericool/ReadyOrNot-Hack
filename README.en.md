@@ -1,23 +1,27 @@
 # Ready Or Not Solo ESP
 
-Unofficial Windows x64 ESP for solo Ready Or Not, with Russian keyboard menu and labels.
+Unofficial Windows x64 ESP for solo Ready Or Not, with Russian menu and labels.
 
-Features: enemy/civilian boxes, 16-joint skeletons, independent numeric HP and HP bars, distances, character states, evidence/dropped weapons, reportable objects and initially incapacitated victims. Persistent settings and network-session telemetry guard.
+Features: enemy/civilian boxes, 16-joint skeletons, independent numeric HP and bars, distances and states, independent arrested filter, evidence/dropped weapons, reportable objects and incapacitated victims. Four menu groups with keyboard/mouse handlers.
 
-Tested: Steam build 24942528 / menu version 133804 / UE 5.3, solo mission at 3440×1440. Separate transparent Windows Forms/GDI overlay; no DirectX hooks. Separate DX11 run untested. Borderless windowed mode recommended. Future builds, exclusive fullscreen and other resolutions are unverified.
+## One EXE launch
 
-Download the complete ZIP from [Releases](https://github.com/wericool/ReadyOrNot-Solo-ESP/releases/latest), extract to a permanent writable folder, close the game, open PowerShell in that folder:
+Download ReadyOrNot-ESP.exe from [Releases](https://github.com/wericool/ReadyOrNot-Solo-ESP/releases/latest), put it in a permanent writable folder and double-click it. The launcher contains the overlay, Lua mod, pinned UE4SS and licenses. No scripts or dependency downloads are needed by the end user.
 
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-ESP.ps1 -GameRoot "D:\SteamLibrary\steamapps\common\Ready Or Not"
+It detects the running game, installs/updates the mod and starts the overlay. With the game closed it searches Steam libraries; if discovery fails, select the game shipping EXE once.
 
-Use your actual game path. Launch a solo mission and Start-ESP.cmd. Insert opens the menu; arrows/Enter change options; F6 toggles ESP; End exits. Hotkeys require the game to be foreground. Four menu groups with Tab navigation and mouse controls; a free cursor may require pausing the game. Actual in-game mouse input has not been confirmed in this update.
+First loader installation/enabling requires restarting the game once. The launcher explains this and waits; it never closes the game automatically. Existing loaded UE4SS with Lua auto-reload can update the mod in the running mission. Otherwise a mod update requires restart too.
 
-Source build: run build.ps1, Download-UE4SS.ps1, then installation. Requires .NET Framework 4.x, no Visual Studio. Pinned UE4SS v3.0.1-1152-ge3ba1016 with SHA-256 check. Complete release ZIP includes runtime.
+Settings, telemetry, cached game location and backups are local files created beside the EXE; nothing is uploaded. Moving the EXE only requires starting it again. Foreign loader hashes are rejected; original EXE/PAK files and saves are preserved.
 
-Close the game before running Disable-ESP.ps1 or Enable-ESP.ps1 with the same -GameRoot argument. Disable renames the verified loader DLL and disables all UE4SS mods using it. Original game EXE/PAK files and saves are preserved. Conflicting loader versions stop installation.
+Insert: menu; Tab: group; arrows/Enter: options; F6: ESP; End: exit. Mouse controls may require pausing for a free cursor. Actual in-game mouse operation remains unconfirmed due to capture failure.
 
-UE4SS Lua reads reflected Unreal actors and writes local telemetry. External C# overlay displays it. Nothing is uploaded. Skeletons may lag due to game animation culling; some object types have no HP. Collected/reported markers depend on game flags. Full details: [Russian README](README.md).
+## Update interval
 
-Project and bundled UE4SS use MIT licenses; [third-party notices](THIRD-PARTY-NOTICES.md).
+General menu offers 100 / 50 / 33 / 16 / 8 ms, applied without restart to collection and overlay polling. Actual rate depends on game-thread load. One live solo mission measured approximately 10 / 19 / 29 / 37 / 41 Hz respectively. Default: 16 ms.
 
-Version 1.1.0 adds an independent arrested-character filter (hidden by default), grouped menu, and optimized telemetry with a 16 ms target interval. Actual data rate depends on game-thread scheduling; measured approximately 38-39 Hz in one solo session. Disabled skeletons and hidden categories skip projection work. The menu displays observed data Hz, not game FPS.
+Tested base: Steam build 24942528 / menu 133804 / UE 5.3 at 3440x1440. Separate DX11 launch and exclusive fullscreen untested. Borderless recommended. One-EXE update of an already loaded mod verified in a live mission; fresh loader extraction verified in a fixture, not a complete fresh-game launch.
+
+For source builds run build.ps1 with .NET Framework 4.x. The pinned official UE4SS archive is downloaded if absent and SHA-256 verified. Build creates one x64 EXE with embedded resources. Manual maintenance scripts remain in source, not the minimal release ZIP.
+
+[Full Russian documentation](README.md). Project and UE4SS: MIT; [third-party notices](THIRD-PARTY-NOTICES.md).
