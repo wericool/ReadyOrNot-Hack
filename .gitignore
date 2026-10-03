@@ -12,3 +12,8 @@ verification*
 build/
 game-location.txt
 Portable/
+Release/
+tests/
+diagnostics.json
+station-input*.txt
+station-input*.tmp

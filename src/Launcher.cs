@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -104,12 +104,12 @@ public static class Launcher {
         WriteChanged(script,lua);WriteChanged(modsPath,updated);
         File.WriteAllText(Path.Combine(Root,"game-location.txt"),bin,new UTF8Encoding(false));
         bool restart=running&&(!loaded||!proxyWasEnabled||!enabled||(changed&&!autoReload));
-        return new Preparation { RestartRequired=restart,Message=restart?"Файлы готовы. Закрой и заново запусти игру: загрузчик подключается при старте. Лаунчер дождётся новой миссии.":running?"ESP готов.":"Файлы готовы. Запусти игру и загрузи одиночную миссию." };
+        return new Preparation { RestartRequired=restart,Message=restart?"Файлы готовы. Закрой и заново запусти игру: загрузчик подключается при старте. Лаунчер дождётся новой миссии.":running?"ESP готов.":"Файлы готовы. Запусти игру и загрузи миссию." };
     }
     public static void Run() {
         string bin=FindGameDirectory();
         if(bin==null) {
-            using(var dialog=new OpenFileDialog { Title="Выбери ReadyOrNotSteam-Win64-Shipping.exe",Filter="Ready Or Not|ReadyOrNotSteam-Win64-Shipping.exe",CheckFileExists=true }) {
+            using(var dialog=new System.Windows.Forms.OpenFileDialog { Title="Выбери ReadyOrNotSteam-Win64-Shipping.exe",Filter="Ready Or Not|ReadyOrNotSteam-Win64-Shipping.exe",CheckFileExists=true }) {
                 if(dialog.ShowDialog()!=DialogResult.OK)return;bin=Path.GetDirectoryName(dialog.FileName);
             }
         }
@@ -123,7 +123,7 @@ public static class Launcher {
         public bool Ready;readonly Timer timer=new Timer { Interval=1000 };bool mustExit;readonly string bin;
         public LaunchWindow(string message,string gameBin) {
             bin=gameBin;using(var game=RunningGame())mustExit=game!=null;
-            Text="Ready Or Not ESP";ClientSize=new Size(560,200);StartPosition=FormStartPosition.CenterScreen;FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;
+            Text="Ready or Not hack by ericool";ClientSize=new Size(560,200);StartPosition=FormStartPosition.CenterScreen;FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;
             var label=new Label { Text=message,Location=new Point(22,22),Size=new Size(515,100),Font=new Font("Segoe UI",11) };Controls.Add(label);
             var launch=new Button {Text="Запустить игру",Location=new Point(22,140),Size=new Size(190,36)};
             launch.Click+=(s,e)=>{using(var game=RunningGame()){if(game!=null){label.Text="Игра уже запущена. Если требуется перезапуск, закрой её самостоятельно.";return;}}Process.Start("steam://run/1144200");};Controls.Add(launch);

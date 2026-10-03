@@ -1,7 +1,7 @@
-Ready Or Not Solo ESP
+Ready or Not hack by ericool
 MIT License
 
-Copyright (c) 2026 ReadyOrNot Solo ESP contributors
+Copyright (c) 2026 ericool and ReadyOrNot Hack contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
